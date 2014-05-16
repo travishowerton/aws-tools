@@ -134,23 +134,21 @@ class AwsRegion
       end
     end
 
-    def put(options={})
+    def put(local_file_path, aws_path, options={})
       # puts a local file to an s3 object in bucket on path
       # example: put_local_file {:bucket=>"bucket", :local_file_path=>"/tmp/bar/foo.txt", :aws_path=>"b"}
       # would make an s3 object named foo.txt in bucket/b
-      aws_path        = options[:aws_path]
-      local_file_path = options[:local_file_path]
       aws_path = aws_path[0..-2] if aws_path[-1..-1] == '/'
       s3_path = "#{aws_path}/#{File.basename(local_file_path)}"
       puts "s3 writing #{local_file_path} to bucket #{@id} path: #{aws_path} s3 path: #{s3_path}"
       f = File.open local_file_path, 'rb'
-      @region.s3.put_object(:bucket => @id,
-                     :key => s3_path,
-                     :body => f,
-                     :storage_class => 'REDUCED_REDUNDANCY')
+      options[:bucket] = @id
+      options[:key] = s3_path
+      options[:body] = f
+      options[:storage_class] = 'REDUCED_REDUNDANCY'
+      result = @region.s3.put_object(params=options)
       f.close
-      puts "s3 wrote."
-      nil
+      result
     end
 
     def find(options={})
