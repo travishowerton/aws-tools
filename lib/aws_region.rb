@@ -1,4 +1,3 @@
-#!/usr/bin/env ruby
 require 'aws-sdk-core'
 require 'yaml'
 require 'json'
@@ -413,9 +412,6 @@ class AwsRegion
       @region.ec2.terminate_instances({:instance_ids => [@id]})
     end
 
-    def archive_logs()
-    end
-
     def stop(wait=false)
       if self.state(use_cached_state = false) != "running"
         puts "Instance cannot be stopped - #{@region.region}://#{@id} is in the state: #{self.state}"
@@ -441,8 +437,6 @@ class AwsRegion
         return
       end
       ip = self.public_ip != "" ? self.public_ip : self.private_ip
-      #puts "Connecting: ssh -i ~/.ssh/ec2.#{@region.region}.pem #{@tags[:user]}@#{ip}"
-      #exec "ssh -i ~/.ssh/ec2.#{@region.region}.pem #{@tags[:user]}@#{ip}"
       puts "Connecting: ssh #{@tags[:user]}@#{ip}"
       exec "ssh #{@tags[:user]}@#{ip}"
     end
