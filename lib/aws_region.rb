@@ -2,9 +2,17 @@ require 'aws-sdk-core'
 require 'yaml'
 require 'json'
 
+# AwsRegion is a simplified wrapper on top of a few of the Aws core objects
+# The main goal is to expose a extremely simple interface for some our most
+# frequently used Aws facilities.
 class AwsRegion
   attr_accessor :ec2, :region, :rds, :account_id, :elb, :cw, :s3
   REGIONS = {'or' => "us-west-2", 'ca' => "us-west-1", 'va' => 'us-east-1'}
+
+  # @param region [String] - must be one of the keys of the REGIONS static hash
+  # @param account_id [String] - Aws account id
+  # @param access_key_id [String] - Aws access key id
+  # @param secret_access_key [String] - Aws secret access key
   def initialize(region, account_id, access_key_id, secret_access_key)
     @region = REGIONS[region]
     @account_id = account_id
@@ -15,12 +23,21 @@ class AwsRegion
     @elb = Aws::ElasticLoadBalancing.new({:region => @region})
     @cw = Aws::CloudWatch.new({:region => @region})
     @s3 = Aws::S3.new({:region => @region})
+  end
 
-    def find_instances(options={})
-      instances = []
-      @ec2.describe_instances[:reservations].each do |i|
-       i.instances.each do |y|
-        instance = AwsInstance.new(self,{:instance => y})
+  # Simple EC2 Intance finder.  Can find using instance_id, or using
+  # :environment and :purpose instance tags which must both match.
+  #
+  # @param options [Hash] containing search criteria.  Values can be:
+  #   * :instance_id - identifies an exact instance
+  #   * :environment - instance tag
+  #   * :purpose     - instance tag
+  # @return [Array<AwsInstance>] instances found to match criteria
+  def find_instances(options={})
+    instances = []
+    @ec2.describe_instances[:reservations].each do |i|
+      i.instances.each do |y|
+        instance = AwsInstance.new(self, {:instance => y})
         if instance.state != 'terminated'
           if options.has_key?(:environment) and options.has_key?(:purpose)
             instances << instance if  instance.tags[:environment] == options[:environment] and instance.tags[:purpose] == options[:purpose]
@@ -28,81 +45,131 @@ class AwsRegion
             instances << instance if instance.id == options[:instance_id]
           end
         end
-       end
       end
-      return instances
     end
-    def find_db_instances(options={})
-      instances = []
-      @rds.describe_db_instances[:db_instances].each do |i|
-        instance = AwsDbInstance.new(self, {:instance => i})
-        if options.has_key?(:instance_id) and
-           (!options.has_key?(:environment) or !options.has_key?(:purpose)) and
-           instance.id == options[:instance_id]
-           instances << instance
-        elsif instance.id == options[:instance_id] and
-              instance.tags[:environment] == options[:environment] and
-              instance.tags[:purpose] == options[:purpose]
-          instances << instance
-        end
-      end
-      instances
-    end
+    return instances
+  end
 
-    def find_buckets(options={})
-      buckets = []
-      _buckets = @s3.list_buckets()
-      _buckets[:buckets].each do |b|
-          buckets << AwsBucket.new(self, {id: b[:name]})  if b[:name] == options[:bucket]
+  # Simple DB Intance finder.  Can find using instance_id, or using
+  # :environment and :purpose instance tags which must both match.
+  #
+  # @param options [Hash] containing search criteria.  Values can be:
+  #   * :instance_id - identifies an exact instance
+  #   * :environment - instance tag
+  #   * :purpose     - instance tag
+  # @return [Array<AwsDbInstance>] instances found to match criteria
+  def find_db_instances(options={})
+    instances = []
+    @rds.describe_db_instances[:db_instances].each do |i|
+      instance = AwsDbInstance.new(self, {:instance => i})
+      if options.has_key?(:instance_id)
+        instance.id == options[:instance_id]
+        instances << instance
+      elsif instance.tags[:environment] == options[:environment] and
+          instance.tags[:purpose] == options[:purpose]
+        instances << instance
       end
-      buckets
     end
-    def create_instance(options={})
-      AwsInstance.new(self, options)
+    instances
+  end
+
+
+  # Search region for a bucket by name
+  #
+  # @param options [Hash] containing search criteria.  Values can be:
+  #   * :bucket  -  Bucket name
+  # @return [Array<AwsBucket>] instances found to match criteria
+  def find_buckets(options={})
+    buckets = []
+    _buckets = @s3.list_buckets()
+    _buckets[:buckets].each do |b|
+      buckets << AwsBucket.new(self, {id: b[:name]}) if b[:name] == options[:bucket]
     end
-    def create_db_instance(options={})
-      AwsDbInstance.new(self, options)
-    end
-    def create_cw_instance(options={})
-      AwsCw.new(self, options)
-    end
-    def create_bucket(options={})
-      AwsBucket.new(self, options)
-    end
-    def remove_instance_from_lb(instance, lb_name)
-      lb = @elb.describe_load_balancers({:load_balancer_names => [lb_name]})
-      if lb and lb[:load_balancer_descriptions].length > 0
-        lb[:load_balancer_descriptions][0][:instances].each do |lbi|
-          if lbi[:instance_id] == instance
-            @elb.deregister_instances_from_load_balancer({:load_balancer_name => lb_name,
-                                                          :instances => [{:instance_id => instance}]})
-          end
+    buckets
+  end
+
+  # Construct new EC2 instance
+  #
+  # @param options [Hash] containing initialization parameters.  See {AwsInstance#initialize}
+  # @return [AwsInstance]
+  def create_instance(options={})
+    AwsInstance.new(self, options)
+  end
+
+  # Construct new DB instance
+  #
+  # @param options [Hash] containing initialization parameters.  See {AwsDbInstance#initialize}
+  # @return [AwsDbInstance]
+  def create_db_instance(options={})
+    AwsDbInstance.new(self, options)
+  end
+
+  # Construct new CloudWatch instance
+  #
+  # @param options [Hash] containing initialization parameters.  See {AwsCw#initialize}
+  # @return [AwsCw]
+  def create_cw_instance(options={})
+    AwsCw.new(self, options)
+  end
+
+  # Construct new AwsBucket instance
+  #
+  # @param options [Hash] containing initialization parameters.  See {AwsBucket#initialize}
+  # @return [AwsBucket]
+  def create_bucket(options={})
+    AwsBucket.new(self, options)
+  end
+
+  # Given a valid AwsInstance and ElasticLB name, remove the instance from the LB.  Needs
+  # to be refactored to be part of an ElasticLB class.
+  #
+  # @param instance [AwsInstance] Instance to remove from lb
+  # @param lb_name [String] Lb name from which the instance is to be removed
+  # @return [Aws::PageableResponse]
+  def remove_instance_from_lb(instance, lb_name)
+    lb = @elb.describe_load_balancers({:load_balancer_names => [lb_name]})
+    if lb and lb[:load_balancer_descriptions].length > 0
+      lb[:load_balancer_descriptions][0][:instances].each do |lbi|
+        if lbi[:instance_id] == instance
+          @elb.deregister_instances_from_load_balancer({:load_balancer_name => lb_name,
+                                                        :instances => [{:instance_id => instance}]})
         end
       end
     end
   end
 
+# Methods for dealing with CloudWatch
   class AwsCw
     attr_accessor :region
+
+    # @params - region [String] - Value from REGION static hash
     def initialize(region, options={})
       @region = region
     end
+
+    # Put a cw metric
+    # @params - arg_csv [String] - CSV row: "namespace,name,value,dims"
+    # * Note that dims is formatted as an arbitrary semicolon separated list of name:value dimensions.  For example:
+    #   * "activeservers,count,10,env:prod;purp:test"
+    # @return [Aws::PageableResponse]
     def put_metric(arg_csv)
       (namespace, name, value, dims) = arg_csv.split(",")
       dimensions = []
       dims.split(";").each do |d|
-        (n,v) = d.split(":")
+        (n, v) = d.split(":")
         dimensions << {:name => n, :value => v}
       end
       args = {:namespace => namespace}
       metric ={:metric_name => name, :value => value.to_f, :timestamp => Time.now, :dimensions => dimensions}
       args[:metric_data] = [metric]
       @region.cw.put_metric_data(args)
-    end    
+    end
   end
 
+  # Methods for dealing with S3 buckets
   class AwsBucket
     attr_accessor :region
+
     def initialize(region, options={})
       @region = region
       if options.has_key?(:id)
@@ -119,9 +186,11 @@ class AwsRegion
         @id = bucket
       end
     end
+
     def delete
       @region.s3.delete_bucket({bucket: @id})
     end
+
     def put_file(filename, file_identity)
       File.open(filename, 'r') do |reading_file|
         resp = @region.s3.put_object(
@@ -159,12 +228,12 @@ class AwsRegion
       #           matching (in regex terms) development/broadhead.*
       # return empty array if no matching objects exist
       aws_path = options[:aws_path]
-      prefix   = options[:prefix]
+      prefix = options[:prefix]
       aws_path = '' if aws_path.nil?
       aws_path = aws_path[0..-2] if aws_path[-1..-1] == '/'
       puts "s3 searching bucket:#{@id} for #{aws_path}/#{prefix}"
       objects = @region.s3.list_objects(:bucket => @id,
-                                 :prefix => "#{aws_path}/#{prefix}")
+                                        :prefix => "#{aws_path}/#{prefix}")
       f = objects.contents.collect(&:key)
       puts "s3 searched  got: #{f.inspect}"
       f
@@ -178,11 +247,11 @@ class AwsRegion
       #          would write to local /tmp/foo.txt a file retrieved from s3 in 'mazama-inventory' bucket
       #          at development/myfile.txt
       s3_path_to_object = options[:s3_path_to_object]
-      dest_file_path    = options[:dest_file_path]
+      dest_file_path = options[:dest_file_path]
       File.delete dest_file_path if File.exists?(dest_file_path)
       puts "s3 get bucket:#{@id} path:#{s3_path_to_object} dest:#{dest_file_path}"
       response = @region.s3.get_object(:bucket => @id,
-                                       :key    => s3_path_to_object)
+                                       :key => s3_path_to_object)
       response.body.rewind
       # I DO NOT KNOW what happens if the body is "too big". I didn't see a method in the
       # API to chunk it out... but perhaps response.body does this already.
@@ -197,21 +266,22 @@ class AwsRegion
       # deletes from s3 an object in :bucket at :s3_path_to_object
       s3_path_to_object = options[:s3_path_to_object]
       puts "s3 delete  #{s3_path_to_object}"
-      @region.s3.delete_object( :bucket => @id,
-                                :key    => s3_path_to_object)
+      @region.s3.delete_object(:bucket => @id,
+                               :key => s3_path_to_object)
       puts "s3 deleted."
     end
 
     def delete_all_objects
       response = @region.s3.list_objects({:bucket => @id})
       response[:contents].each do |obj|
-        @region.s3.delete_object( :bucket => @id,
-                                  :key    => obj[:key])
+        @region.s3.delete_object(:bucket => @id,
+                                 :key => obj[:key])
       end
     end
   end
   class AwsDbInstance
     attr_accessor :id, :tags, :region, :endpoint
+
     def initialize(region, options = {})
       @region = region
       opts = options[:opts]
@@ -233,8 +303,8 @@ class AwsRegion
 
         self.wait
 
-        opts = { :db_instance_identifier => @id,
-                 :vpc_security_group_ids => options[:vpc_security_group_ids]}
+        opts = {:db_instance_identifier => @id,
+                :vpc_security_group_ids => options[:vpc_security_group_ids]}
         @region.rds.modify_db_instance(opts)
       else
         @_instance = options[:instance]
@@ -250,35 +320,35 @@ class AwsRegion
 
     def delete(options={})
       puts "Deleting database: #{@id}"
-      opts = { :db_instance_identifier => @id,
-               :skip_final_snapshot => false,
-               :final_db_snapshot_identifier => "#{@id}-#{Time.now.strftime("%Y-%m-%d-%H-%M-%S")}" }
+      opts = {:db_instance_identifier => @id,
+              :skip_final_snapshot => false,
+              :final_db_snapshot_identifier => "#{@id}-#{Time.now.strftime("%Y-%m-%d-%H-%M-%S")}"}
       i = @region.rds.delete_db_instance(opts)
     end
 
     def purge_db_snapshots
       latest = 0
       @region.rds.describe_db_snapshots[:db_snapshots].each do |i|
-         if i.snapshot_type == "manual" and i.db_instance_identifier == @id
-           if i.snapshot_create_time.to_i > latest
-             latest = i.snapshot_create_time.to_i
-           end
-         end
+        if i.snapshot_type == "manual" and i.db_instance_identifier == @id
+          if i.snapshot_create_time.to_i > latest
+            latest = i.snapshot_create_time.to_i
+          end
+        end
       end
       @region.rds.describe_db_snapshots[:db_snapshots].each do |i|
-         if i.snapshot_type == "manual" and i.db_instance_identifier == @id
-           if i.snapshot_create_time.to_i != latest
-             puts "Removing snapshot: #{i.db_snapshot_identifier}/#{i.snapshot_create_time.to_s}"
-             begin
-               @region.rds.delete_db_snapshot({:db_snapshot_identifier => i.db_snapshot_identifier})
-             rescue
-               puts "Error removing snapshot: #{i.db_snapshot_identifier}/#{i.snapshot_create_time.to_s}"
-             end
-           else
-             puts "Keeping snapshot: #{i.db_snapshot_identifier}/#{i.snapshot_create_time.to_s}"
-           end
-         end
-       end
+        if i.snapshot_type == "manual" and i.db_instance_identifier == @id
+          if i.snapshot_create_time.to_i != latest
+            puts "Removing snapshot: #{i.db_snapshot_identifier}/#{i.snapshot_create_time.to_s}"
+            begin
+              @region.rds.delete_db_snapshot({:db_snapshot_identifier => i.db_snapshot_identifier})
+            rescue
+              puts "Error removing snapshot: #{i.db_snapshot_identifier}/#{i.snapshot_create_time.to_s}"
+            end
+          else
+            puts "Keeping snapshot: #{i.db_snapshot_identifier}/#{i.snapshot_create_time.to_s}"
+          end
+        end
+      end
     end
 
     def wait(options = {:desired_status => "available",
@@ -301,7 +371,7 @@ class AwsRegion
     end
 
     def status
-       @_instance.db_instance_status
+      @_instance.db_instance_status
     end
 
     def get_latest_db_snapshot(options={})
@@ -321,6 +391,7 @@ class AwsRegion
   end
   class AwsInstance
     attr_accessor :id, :tags, :region, :private_ip, :public_ip, :_instance
+
     def initialize(region, options = {})
       @region = region
       if !options.has_key?(:instance)
@@ -338,6 +409,7 @@ class AwsRegion
       @public_ip = @_instance[:public_ip_address]
       @private_ip = @_instance[:private_ip_address]
     end
+
     def state(use_cached_state=true)
       if !use_cached_state
         response = @region.ec2.describe_instances({instance_ids: [@id]})
@@ -353,6 +425,7 @@ class AwsRegion
         @_instance.state[:name].strip()
       end
     end
+
     def start(wait=false)
       if self.state(use_cached_state = false) != "stopped"
         puts "Instance cannot be started - #{@region.region}://#{@id} is in the state: #{self.state}"
@@ -378,13 +451,15 @@ class AwsRegion
         puts "Adding instance: #{@id} to '#{@tags['elastic_lb']}' load balancer"
       end
     end
+
     def set_security_groups(groups)
       resp = @region.ec2.modify_instance_attribute({:instance_id => @id,
                                                     :groups => groups})
     end
+
     def add_tags(h_tags)
       tags = []
-      h_tags.each do |k,v|
+      h_tags.each do |k, v|
         tags << {:key => k.to_s, :value => v}
       end
       resp = @region.ec2.create_tags({:resources => [@id],
@@ -431,6 +506,7 @@ class AwsRegion
         puts "Instance stopped: #{@region.region}://#{@id}"
       end
     end
+
     def connect
       if self.state(use_cached_state = false) != "running"
         puts "Cannot connect, instance: #{@region.region}://#{@id} due to its state: #{self.state}"
