@@ -130,13 +130,13 @@ class AwsRegion < AwsBase
   class AwsCw  < AwsBase
     attr_accessor :region
 
-    # @params - region [String] - Value from REGION static hash
+    # @param region [String] - Value from REGION static hash
     def initialize(region, options={})
       @region = region
     end
 
     # Put a cw metric
-    # @params - arg_csv [String] - CSV row: "namespace,name,value,dims"
+    # @param arg_csv [String] - CSV row: "namespace,name,value,dims"
     # * Note that dims is formatted as an arbitrary semicolon separated list of name:value dimensions.  For example:
     #   * "activeservers,count,10,env:prod;purp:test"
     # @return [Aws::PageableResponse]
@@ -154,13 +154,13 @@ class AwsRegion < AwsBase
     end
   end
 
-  # Methods for dealing with S3 buckets
   class AwsBucket  < AwsBase
+  # Methods for dealing with S3 buckets
     attr_accessor :region
 
     # Constructs a bucket instance from an existing bucket, or creates a new one with the name
-    # @params - region [String]  - Value from REGION static hash
-    # @params - options [Hash] - Possible values:
+    # @param region [String]  - Value from REGION static hash
+    # @param options [Hash] - Possible values:
     # * :id - id of existing bucket
     # * :bucket - Name of bucket to find or create
     def initialize(region, options={})
@@ -187,8 +187,8 @@ class AwsRegion < AwsBase
     end
 
     # Put a local file to this bucket
-    # @params - filename [String]  - local file name
-    # @params - file_identity [String] - S3 file path
+    # @param filename [String]  - local file name
+    # @param file_identity [String] - S3 file path
     # @return [AwsPageableResponse]
     def put_file(filename, file_identity)
       File.open(filename, 'r') do |reading_file|
@@ -202,11 +202,11 @@ class AwsRegion < AwsBase
     end
 
     # puts a local file to an s3 object in bucket on path
-    # example: put_local_file {:bucket=>"bucket", :local_file_path=>"/tmp/bar/foo.txt", :aws_path=>"b"}
+    # example: put_local_file(:bucket=>"bucket", :local_file_path=>"/tmp/bar/foo.txt", :aws_path=>"b")
     # would make an s3 object named foo.txt in bucket/b
-    # @params - local_file_path [String] - Location of file to put
-    # @params - aws_path [String] - S3 path to put the file
-    # @params - options [Hash] - Can contain any valid S3 bucket options see [docs](http://docs.aws.amazon.com/sdkforruby/api/frames.html)
+    # @param local_file_path [String] - Location of file to put
+    # @param aws_path [String] - S3 path to put the file
+    # @param options [Hash] - Can contain any valid S3 bucket options see [docs](http://docs.aws.amazon.com/sdkforruby/api/frames.html)
     def put(local_file_path, aws_path, options={})
       aws_path = aws_path[0..-2] if aws_path[-1..-1] == '/'
       s3_path = "#{aws_path}/#{File.basename(local_file_path)}"
@@ -227,7 +227,7 @@ class AwsRegion < AwsBase
     # example: :aws_path=>'development', :prefix=>'broadhead'
     #           would return array of names of objects in said bucket
     #           matching (in regex terms) development/broadhead.*
-    # @params - options [Hash] - Can contain:
+    # @param options [Hash] - Can contain:
     # * :aws_path - first part of S3 path to search
     # * :prefix - Actually suffix of path to search.
     # @return [Array<Hash>] - 0 or more objects
@@ -245,11 +245,11 @@ class AwsRegion < AwsBase
     end
 
     # writes contents of S3 object to local file
-    # example: get( {:s3_path_to_object=>development/myfile.txt',
-    #                :dest_file_path=>'/tmp/foo.txt'})
+    # example: get( :s3_path_to_object=>development/myfile.txt',
+    #               :dest_file_path=>'/tmp/foo.txt')
     #          would write to local /tmp/foo.txt a file retrieved from s3
     #          at development/myfile.txt
-    # @params - options [Hash] - Can contain:
+    # @param options [Hash] - Can contain:
     # * :s3_path_to_object - S3 object path
     # * :dest_file_path - local file were file will be written
     # @return [Boolean]
@@ -272,7 +272,7 @@ class AwsRegion < AwsBase
     end
 
     # deletes from s3 an object at :s3_path_to_object
-    # @params - options [Hash] - Can be:
+    # @param options [Hash] - Can be:
     # * :s3_path_to_object
     # @return [Boolean]
     def delete_object(options={})
@@ -308,8 +308,8 @@ class AwsRegion < AwsBase
     attr_accessor :id, :tags, :region, :endpoint
 
     # Creates an AwsDbInstance for an existing instance or creates a new database
-    # @params - region [String] - - Value from REGION static hash
-    # @params - options [Hash] - Can contain:
+    # @param region [String] - - Value from REGION static hash
+    # @param options [Hash] - Can contain:
     # * :instance - If specified, create an instance of this class using this RDS instance.
     # * :opts - [Hash] - Includes parameters for constructing the database.  The format is:
     #   * :db_instance_identifier - RDS instance identifier
@@ -323,10 +323,8 @@ class AwsRegion < AwsBase
     #   * :environment - Environment  designation - can be anything.  Used to locate instance with other aws-tools
     #   * :purpose - Purpose  designation - can be anything.  Used to locate instance with other aws-tools
     #   * :name - Name will appear in the Aws web page if you set this
-    #   * :snapshot_name - Name of
-    #   * :vpc_security_group_ids: sg-24010b46
-
-
+    #   * :snapshot_name - Name of the snapshot that will be used to construct the new instance.  This name will be matched with the  RDS db_instance_identifier.  The latest snapshot will be used.
+    #   * :vpc_security_group_ids: - Comma separated list of security groups that will be applied to this instance
     def initialize(region, options = {})
       @region = region
       opts = options[:opts]
@@ -364,15 +362,22 @@ class AwsRegion < AwsBase
     end
 
     # Delete a database and be sure to capture a final stapshot
+    # @return [Boolean] - A return value of true only means that the command was issued.  The caller should follow up later with a call to determine status in order to know when the delete has been completed
     def delete(options={})
       log "Deleting database: #{@id}"
       opts = {:db_instance_identifier => @id,
               :skip_final_snapshot => false,
               :final_db_snapshot_identifier => "#{@id}-#{Time.now.strftime("%Y-%m-%d-%H-%M-%S")}"}
-      i = @region.rds.delete_db_instance(opts)
+      begin
+        i = @region.rds.delete_db_instance(opts)
+      rescue  Exception => e
+        return false
+      end
+      true
     end
 
     # Purge db snapshots, keep just one - the latest
+    # @return [Boolean]
     def purge_db_snapshots
       latest = 0
       @region.rds.describe_db_snapshots[:db_snapshots].each do |i|
@@ -390,21 +395,27 @@ class AwsRegion < AwsBase
               @region.rds.delete_db_snapshot({:db_snapshot_identifier => i.db_snapshot_identifier})
             rescue
               log "Error removing snapshot: #{i.db_snapshot_identifier}/#{i.snapshot_create_time.to_s}"
+              return false
             end
           else
             log "Keeping snapshot: #{i.db_snapshot_identifier}/#{i.snapshot_create_time.to_s}"
           end
         end
       end
+      true
     end
 
     # Wait for the database to get to a state - we are usually waiting for it to be "available"
+    # @param options [Hash] - Can be:
+    # * :desired_status - Default: "available" - The RDS Status that is sought
+    # * :timeout - Default: 600 seconds. - The time to wait for the status before returning failure
+    # @return [Boolean]
     def wait(options = {:desired_status => "available",
                         :timeout => 600})
       inst = @region.find_db_instances({:instance_id => @id})[0]
       if !inst
         log "Error, instance: #{@id} not found"
-        return
+        return false
       end
       t0 = Time.now.to_i
       while inst.status != options[:desired_status]
@@ -412,18 +423,21 @@ class AwsRegion < AwsBase
         log "Database: #{@id} at #{@endpoint}.  Current status: #{inst.status}"
         if Time.now.to_i - t0 > options[:timeout]
           log "Timed out waiting for database: #{@id} at #{@endpoint} to move into status: #{options[:desired_status]}.  Current status: #{inst.status}"
-          return
+          return false
         end
         sleep 20
       end
+      return true
     end
 
     # Get the status of a database
+    # @return [String] - Current status of this database
     def status
       @_instance.db_instance_status
     end
 
-    # Get tthe name of the latest snapshot
+    # Get the name of the latest snapshot
+    # @return [Hash] - Hash describing RDS Snapshot.  See [RDS Tech Docs](http://docs.aws.amazon.com/sdkforruby/api/Aws/RDS/V20130909.html)
     def get_latest_db_snapshot(options={})
       snapshot_name = options.has_key?(:snapshot_name) ? options[:snapshot_name] : @id
 
