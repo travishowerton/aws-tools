@@ -7,6 +7,7 @@ class AwsBase
     @logger.write("#{Time.now.strftime("%b %D, %Y %H:%S:%M:")} #{msg}\n") if @logger
   end
 end
+
 # AwsRegion is a simplified wrapper on top of a few of the Aws core objects
 # The main goal is to expose a extremely simple interface for some our most
 # frequently used Aws facilities.
@@ -14,10 +15,10 @@ class AwsRegion < AwsBase
   attr_accessor :ec2, :region, :rds, :account_id, :elb, :cw, :s3
   REGIONS = {'or' => "us-west-2", 'ca' => "us-west-1", 'va' => 'us-east-1'}
 
-  # @param region [String] - must be one of the keys of the REGIONS static hash
-  # @param account_id [String] - Aws account id
-  # @param access_key_id [String] - Aws access key id
-  # @param secret_access_key [String] - Aws secret access key
+  # @param region [String] must be one of the keys of the {AwsRegion::REGIONS REGIONS} static hash
+  # @param account_id [String] Aws account id
+  # @param access_key_id [String] Aws access key id
+  # @param secret_access_key [String] Aws secret access key
   def initialize(region, account_id, access_key_id, secret_access_key, logger = nil)
     @logger = logger
     @region = REGIONS[region]
@@ -154,8 +155,8 @@ class AwsRegion < AwsBase
     end
   end
 
-  class AwsBucket  < AwsBase
   # Methods for dealing with S3 buckets
+  class AwsBucket  < AwsBase
     attr_accessor :region
 
     # Constructs a bucket instance from an existing bucket, or creates a new one with the name
