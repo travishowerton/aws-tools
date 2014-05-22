@@ -307,6 +307,26 @@ class AwsRegion < AwsBase
   class AwsDbInstance  < AwsBase
     attr_accessor :id, :tags, :region, :endpoint
 
+    # Creates an AwsDbInstance for an existing instance or creates a new database
+    # @params - region [String] - - Value from REGION static hash
+    # @params - options [Hash] - Can contain:
+    # * :instance - If specified, create an instance of this class using this RDS instance.
+    # * :opts - [Hash] - Includes parameters for constructing the database.  The format is:
+    #   * :db_instance_identifier - RDS instance identifier
+    #   * :db_subnet_group_name - DB Subgroup name
+    #   * :publicly_accessible - [true|false]
+    #   * :db_instance_class - RDS db instance class
+    #   * :availability_zone - RDS/Aws availability zone
+    #   * :multi_az - [true|false]
+    #   * :engine - RDS engine (Only tested with Mysql at this point)
+    # * :tags - Tags to be applied to RDS instance. The follow are required.  Arbitrary tags may also be added.
+    #   * :environment - Environment  designation - can be anything.  Used to locate instance with other aws-tools
+    #   * :purpose - Purpose  designation - can be anything.  Used to locate instance with other aws-tools
+    #   * :name - Name will appear in the Aws web page if you set this
+    #   * :snapshot_name - Name of
+    #   * :vpc_security_group_ids: sg-24010b46
+
+
     def initialize(region, options = {})
       @region = region
       opts = options[:opts]
