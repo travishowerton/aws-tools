@@ -9,6 +9,7 @@ Gem::Specification.new do |s|
   s.files       = ["lib/aws_region.rb"]
   s.homepage    =
     'http://rubygems.org/gems/aws-tools'
-  s.license       = 'MIT'
+  s.license     = 'MIT'
   s.add_development_dependency "rspec"
+  s.executables = 'aws_manager.rb'
 end
