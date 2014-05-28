@@ -478,6 +478,7 @@ class AwsRegion < AwsBase
     end
 
     # Determine the state of an ec2 instance
+    # @param use_cached_state [Boolean] - When true will use a cached version of the state rather than querying EC2 directly
     def state(use_cached_state=true)
       if !use_cached_state
         response = @region.ec2.describe_instances({instance_ids: [@id]})
@@ -495,6 +496,7 @@ class AwsRegion < AwsBase
     end
 
     # Start an EC2 instance
+    # @param wait [Boolean] - When true, will wait for instance to move into "running" state before returning
     def start(wait=false)
       if self.state(use_cached_state = false) != "stopped"
         log "Instance cannot be started - #{@region.region}://#{@id} is in the state: #{self.state}"
@@ -522,12 +524,14 @@ class AwsRegion < AwsBase
     end
 
     # Set security groups on an instance
+    # @param groups [Array(String)] - List of security groups to add instance to
     def set_security_groups(groups)
       resp = @region.ec2.modify_instance_attribute({:instance_id => @id,
                                                     :groups => groups})
     end
 
     # Add tags to an instance
+    # @param h_tags [Hash] - Hash of tags to add to instance
     def add_tags(h_tags)
       tags = []
       h_tags.each do |k, v|
@@ -538,6 +542,7 @@ class AwsRegion < AwsBase
     end
 
     # Add an instance to an elastic lb
+    # @param lb_name [String] - Name of elastic load balancer
     def add_to_lb(lb_name)
       @region.elb.register_instances_with_load_balancer({:load_balancer_name => lb_name,
                                                          :instances => [{:instance_id => @id}]})
@@ -565,6 +570,7 @@ class AwsRegion < AwsBase
     end
 
     # Stops an ec2 instance
+    # @param wait [Boolean] - When true, will wait for the instance to be completely stopped before returning
     def stop(wait=false)
       if self.state(use_cached_state = false) != "running"
         log "Instance cannot be stopped - #{@region.region}://#{@id} is in the state: #{self.state}"

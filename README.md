@@ -24,6 +24,35 @@ The aws-tools gem can be installed by running:
 API Example Usage
 -----------------
 
+    require 'aws-tools'
+
+    region = AwsRegion.new(region, "777777777777", "AAAAAAAAAAAAAAAAAAA", "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL")
+    image_options = {:tags=>{:environment=>"test",
+                             :purpose=>"app",
+                             :elastic_lb=>"TestAppELB",
+                             :Name=>"Testapp",
+                             :user=>"ubuntu",
+                             :security_group_ids=>"sg-99999999",
+                             :subnet_id=>"subnet-0aaaaaaa",
+                             :elastic_ip_allocation_id=>"eipalloc-ffffffff"
+                            },
+                     :template=>{:image_id=>"ami-44444444",
+                                 :instance_type=>"m1.small",
+                                 :max_count=>1, :min_count=>1,
+                                 :monitoring=>{:enabled=>false},
+                                 :network_interfaces=>[{:associate_public_ip_address=>true,
+                                                        :description=>"Primary",
+                                                        :subnet_id=>"subnet-0aaaaaaa",
+                                                        :delete_on_termination=>true,
+                                                        :device_index=>0}],
+                                 :placement=>{:availability_zone=>"us-west-2a",
+                                              :tenancy=>"default"}
+                                }
+                    }
+    instance = region.create_instance(image_options)
+
+
+
 Documentation
 -------------
 
@@ -175,13 +204,13 @@ This command builds a new instance based on the criteria in the YAML template.  
 
         ---
         :tags:
-          :environment: demo
+          :environment: test
           :purpose: db
-          :name: mazamademo
+          :name: testname
           :snapshot_name: mazamademo
-          :vpc_security_group_ids: sg-24010b46
+          :vpc_security_group_ids: sg-22222222
         :opts:
-          :db_instance_identifier: mazamademo
+          :db_instance_identifier: testname
           :db_subnet_group_name: testdbsubnetgroup
           :publicly_accessible: false
           :db_instance_class: db.t1.micro
@@ -209,7 +238,7 @@ Parameters passed directly to RDS restore_db_instance_from_db_snapshot method.  
 
 example topic_arn:
 
-        arn:aws:sns:us-east-1:795987318935:prod_app_start_failure
+        arn:aws:sns:us-east-1:777777777777:prod_app_start_failure
 
 ###Other commands:
 
