@@ -12,7 +12,7 @@ end
 # The main goal is to expose a extremely simple interface for some our most
 # frequently used Aws facilities.
 class AwsRegion < AwsBase
-  attr_accessor :ec2, :region, :rds, :account_id, :elb, :cw, :s3
+  attr_accessor :ec2, :region, :rds, :account_id, :elb, :cw, :s3, :sns  
   REGIONS = {'or' => "us-west-2", 'ca' => "us-west-1", 'va' => 'us-east-1'}
 
   # @param region [String] must be one of the keys of the {AwsRegion::REGIONS REGIONS} static hash
@@ -30,6 +30,7 @@ class AwsRegion < AwsBase
     @elb = Aws::ElasticLoadBalancing.new({:region => @region})
     @cw = Aws::CloudWatch.new({:region => @region})
     @s3 = Aws::S3.new({:region => @region})
+    @sns = Aws::SNS.new({:region => @region})
   end
 
   # Simple EC2 Intance finder.  Can find using instance_id, or using
@@ -125,6 +126,20 @@ class AwsRegion < AwsBase
   # @return [AwsBucket]
   def create_bucket(options={})
     AwsBucket.new(self, options)
+  end
+
+  def create_sns_instance
+    AwsSns.new(self)
+  end
+
+  class AwsSns
+    attr_accessor :region
+    def initialize(region)
+      @region = region
+    end
+    def publish(topic_arn, subject) #, message)
+      @region.sns.publish(topic_arn: topic_arn, message: "unused for texts", subject: subject)
+    end
   end
 
 # Methods for dealing with CloudWatch
@@ -559,6 +574,7 @@ class AwsRegion < AwsBase
           if lb_i[:instance_id] == @id
             @elb.deregister_instances_from_load_balancer({:load_balancer_name => lb_name,
                                                           :instances => [{:instance_id => @id}]})
+            sleep 30
           end
         end
       end
@@ -566,6 +582,7 @@ class AwsRegion < AwsBase
 
     # Terminates ec2 instance
     def terminate()
+      eject_from_environment
       @region.ec2.terminate_instances({:instance_ids => [@id]})
     end
 
@@ -576,6 +593,7 @@ class AwsRegion < AwsBase
         log "Instance cannot be stopped - #{@region.region}://#{@id} is in the state: #{self.state}"
         return
       end
+      self.eject_from_environment
       if @tags.has_key?("elastic_lb")
         log "Removing instance: #{@id} from '#{@tags['elastic_lb']}' load balancer"
         remove_from_lb(tags["elastic_lb"])
@@ -601,5 +619,129 @@ class AwsRegion < AwsBase
       log "Connecting: ssh #{@tags[:user]}@#{ip}"
       exec "ssh #{@tags[:user]}@#{ip}"
     end
+    def eject_from_environment
+      if @tags.has_key?(:elastic_lb)
+        log "Removing instance: #{@id} from '#{@tags[:elastic_lb]}' load balancer"
+        self.remove_from_lb(tags[:elastic_lb])
+      end
+      if @tags.has_key?(:security_groups_foreign)
+        self.revoke_sg_ingress(@tags[:security_groups_foreign].split(","))
+      end
+    end
+
+    def inject_into_environment
+      if @tags.has_key?(:elastic_ip)
+        @region.ec2.associate_address({:instance_id => @id, :public_ip => @tags[:elastic_ip]})
+        log "Associated ip: #{@tags[:elastic_ip]} with instance: #{@id}"
+      elsif @tags.has_key?(:elastic_ip_allocation_id)
+        @region.ec2.associate_address({:instance_id => @id, :allocation_id => @tags[:elastic_ip_allocation_id]})
+        log "Associated allocation id: #{@tags[:elastic_ip_allocation_id]} with instance: #{@id}"
+      end
+      if @tags.has_key?(:mount_points)
+        mounts = @tags[:mount_points].split(";")
+        mounts.each do |mnt|
+          (volume_id,device) = mnt.split(",")
+          log "Mounting volume: #{volume_id} on #{device}"
+          self.mount(volume_id, device)
+        end
+      end
+      if @tags.has_key?(:security_group_ids)
+        self.set_security_groups(@tags[:security_group_ids].split(","))
+      end
+      if @tags.has_key?(:security_groups_foreign)
+        self.authorize_sg_ingress(@tags[:security_groups_foreign].split(","))
+      end
+
+      # if any of the above fails, we probably do not want it in the lb
+      if @tags.has_key?(:elastic_lb)
+        self.add_to_lb(@tags[:elastic_lb])
+        log "Adding instance: #{@id} to '#{@tags[:elastic_lb]}' load balancer"
+      end
+    end
+    def wait(options = {:timeout => 300, :desired_status => "running"})
+      t0 = Time.now.to_i
+      begin
+        sleep 10
+        log "Waiting on instance: #{@region.region}://#{@id} - current state: #{self.state}"
+        return if Time.now.to_i - t0 > options[:timeout]
+      end while self.state(use_cached_state = false) != options[:desired_status]
+    end
+
+    def set_security_groups(groups)
+      # only works on instances in a vpc
+      @region.ec2.modify_instance_attribute({:instance_id => @id,
+                                             :groups => groups})
+    end
+
+    def has_sg_rule?(group_port)
+      # group_id_port like: 'sg-1234567:8080'
+      options = get_simple_sg_options(group_port)
+      options_cidr_ip = options[:ip_permissions][0][:ip_ranges][0][:cidr_ip]
+      group_id = options[:group_id]
+      raise "missing security group_id" if group_id.nil?
+      sg = @region.ec2.describe_security_groups(:group_ids => [group_id]).data.security_groups[0]
+      sg.ip_permissions.each do |p|
+        if p.ip_protocol == "tcp" &&
+            p.from_port == options[:ip_permissions][0][:from_port] &&
+            p.to_port == options[:ip_permissions][0][:to_port]
+          p[:ip_ranges].each do |ipr|
+            return true if ipr.cidr_ip == options_cidr_ip
+          end
+        end
+      end
+      false
+    end
+
+    def authorize_sg_ingress(groups)
+      # authorize the public ip of this instance for ingress on port for security group
+      # groups is array of strings: security_group_id:port
+      raise "no public ip" unless @public_ip.to_s.match /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/
+      groups.each do |gp|
+        options = get_simple_sg_options(gp)
+        if has_sg_rule?(gp)
+          log "security group rule #{gp} for #{self.public_ip} already exists"
+        else
+          @region.ec2.authorize_security_group_ingress options
+          log "added #{self.public_ip} to security group for :port #{gp}"
+        end
+      end
+    end
+
+    def revoke_sg_ingress(groups)
+      # revoke the public ip of this instance for ingress on port for security group
+      # groups is array of strings: security_group_id:port
+      raise "no public ip" unless @public_ip.to_s.match /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/
+      groups.each do |gp|
+        options = get_simple_sg_options(gp)
+        if has_sg_rule?(gp)
+          @region.ec2.revoke_security_group_ingress options
+          log "removed #{self.public_ip} from security group for :port #{gp}"
+        else
+          log "not removing #{self.public_ip} rule #{gp} because it does not exist"
+        end
+      end
+    end
+    def mount(volume_id, device)
+      @region.ec2.attach_volume({:instance_id => @id,
+                                 :volume_id => volume_id,
+                                 :device => device})
+    end
+    def get_simple_sg_options(group_id_port)
+      # group_id_port is like "sg-1234567:8080"
+      # return simple option hash for one ip, one port, for this public IP
+      security_group_id, port = group_id_port.split(':')
+      port = port.to_s.to_i
+      raise "no security group id" unless security_group_id.to_s.length > 0
+      raise "no, or invalid port" unless port.to_s.to_i > 0
+      {:group_id => security_group_id,
+       :ip_permissions => [ :ip_protocol => "tcp",
+                            :from_port => port,
+                            :to_port => port,
+                            :ip_ranges => [:cidr_ip => "#{self.public_ip}/32"]
+                          ]
+      }
+    end
+
+
   end
 end

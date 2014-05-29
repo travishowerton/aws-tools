@@ -202,7 +202,6 @@ def main
       puts "Cannot find instance template to build server from: #{instance_template}"
       exit
     end
-    #image_options = YAML::load File.read(instance_template)
     image_options = YAML.load(ERB.new(File.read(instance_template)).result)
     instance = region.create_instance(image_options)
   elsif command == 'terminate_instance'
