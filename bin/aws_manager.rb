@@ -4,7 +4,7 @@ require 'aws-sdk-core'
 require 'yaml'
 require 'optparse'
 require 'erb'
-require_relative 'lib/aws_region.rb'
+require_relative '../lib/aws_region.rb'
 
 VALID_COMMANDS=['start', 
                 'stop', 
@@ -101,7 +101,7 @@ def syntax
   puts "        aws_manager.rb --region region [--environment environment] [--purpose purpose] [--choose first|oldest|newest] [--keep-one] stop [id]"
   puts "        aws_manager.rb --region region [--environment environment] [--purpose purpose] [--choose first|oldest|newest] get_instance_status [id]"
   puts "        aws_manager.rb --region region [--environment environment] [--purpose purpose] [--choose first|oldest|newest] get_instance_ip [id]"
-  puts "        aws_manager.rb --region region [--environment environment] [--purpose purpose] [--choose first|oldest|newest] [--keep_one] terminate_instance [id]"
+  puts "        aws_manager.rb --region region [--environment environment] [--purpose purpose] [--choose first|oldest|newest] [--keep-one] terminate_instance [id]"
   puts "   CW commands:"
   puts "        aws_manager.rb --region region put_cw_metric csv_metric"
   puts "   S3 commands:"
@@ -123,7 +123,7 @@ def syntax
   puts "        --environment = -e"
   puts "        --purpose     = -p"
   puts "        --choose      = -c"
-  puts "        --keep_one    = -k"
+  puts "        --keep-one    = -k"
   puts "        --help        = -h"
   exit
 end
@@ -206,11 +206,15 @@ def main
     instance = region.create_instance(image_options)
   elsif command == 'terminate_instance'
     if keep_one and filter_instances(region.find_instances({environment: environment, purpose: purpose  }), ['running']).length < 2
-      puts "Error, there are less than 2 instances, and keep_one flag set.  Exiting."
+      puts "There are less than 2 instances, and keep_one flag set.  Exiting."
       exit
     end
     instance = locate_instance_choice(filter_instances(region.find_instances({environment: environment, purpose: purpose  }), []), name, {:selection_filter => selection_criteria})
-    instance.terminate
+    if instance.nil?
+      puts "No instances matching criteria found #{{environment: environment, purpose: purpose, selection_filter: selection_criteria}.inspect}"
+    else
+      instance.terminate
+    end
   elsif command == 'sns'
     instance = region.create_sns_instance
     instance.publish save_cl[0], save_cl[1]

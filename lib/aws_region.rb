@@ -33,7 +33,7 @@ class AwsRegion < AwsBase
     @sns = Aws::SNS.new({:region => @region})
   end
 
-  # Simple EC2 Intance finder.  Can find using instance_id, or using
+  # Simple EC2 Instance finder.  Can find using instance_id, or using
   # :environment and :purpose instance tags which must both match.
   #
   # @param options [Hash] containing search criteria.  Values can be:
@@ -58,7 +58,7 @@ class AwsRegion < AwsBase
     return instances
   end
 
-  # Simple DB Intance finder.  Can find using instance_id, or using
+  # Simple DB Instance finder.  Can find using instance_id, or using
   # :environment and :purpose instance tags which must both match.
   #
   # @param options [Hash] containing search criteria.  Values can be:
@@ -475,22 +475,32 @@ class AwsRegion < AwsBase
     attr_accessor :id, :tags, :region, :private_ip, :public_ip, :_instance
 
     def initialize(region, options = {})
+      @tags = {}
       @region = region
-      if !options.has_key?(:instance)
-        resp = @region.ec2.run_instances(options)
+      if options.has_key?(:instance)
+        @_instance = options[:instance]
+        @id = @_instance[:instance_id]
+        @public_ip = @_instance[:public_ip_address]
+        @private_ip = @_instance[:private_ip_address]
+      else
+        resp = @region.ec2.run_instances(options[:template])
         raise "Error creating instance using options" if resp.nil? or resp[:instances].length <= 0
         @_instance = resp[:instances][0]
-      else
-        @_instance = options[:instance]
+        @id = @_instance[:instance_id]
+        @tags = options[:tags]
+        self.add_tags(@tags)
+        self.wait
+        instance = @region.ec2.describe_instances(:instance_ids => [@id])[0][0].instances[0]
+        @public_ip = instance[:public_ip_address]
+        @private_ip = instance[:private_ip_address]
+        raise "could not get ip address" if @public_ip.nil? && @private_ip.nil?
+        self.inject_into_environment
       end
-      @id = @_instance[:instance_id]
-      @tags = {}
       @_instance.tags.each do |t|
         @tags[t[:key].to_sym] = t[:value]
       end
-      @public_ip = @_instance[:public_ip_address]
-      @private_ip = @_instance[:private_ip_address]
     end
+
 
     # Determine the state of an ec2 instance
     # @param use_cached_state [Boolean] - When true will use a cached version of the state rather than querying EC2 directly
@@ -536,13 +546,6 @@ class AwsRegion < AwsBase
         self.add_to_lb(@tags["elastic_lb"])
         log "Adding instance: #{@id} to '#{@tags['elastic_lb']}' load balancer"
       end
-    end
-
-    # Set security groups on an instance
-    # @param groups [Array(String)] - List of security groups to add instance to
-    def set_security_groups(groups)
-      resp = @region.ec2.modify_instance_attribute({:instance_id => @id,
-                                                    :groups => groups})
     end
 
     # Add tags to an instance
@@ -669,8 +672,7 @@ class AwsRegion < AwsBase
 
     def set_security_groups(groups)
       # only works on instances in a vpc
-      @region.ec2.modify_instance_attribute({:instance_id => @id,
-                                             :groups => groups})
+      @region.ec2.modify_instance_attribute({:instance_id => @id, :groups => groups})
     end
 
     def has_sg_rule?(group_port)
