@@ -4,7 +4,7 @@ require 'aws-sdk-core'
 require 'yaml'
 require 'optparse'
 require 'erb'
-require_relative '../lib/aws_region.rb'
+require 'aws_region'
 
 VALID_COMMANDS=['start', 
                 'stop', 
