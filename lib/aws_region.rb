@@ -675,8 +675,10 @@ class AwsRegion < AwsBase
       @region.ec2.modify_instance_attribute({:instance_id => @id, :groups => groups})
     end
 
+    # Does a security group allow ingress on a port for the public IP of this instance
+    # @param group_port [String] - security_group:port  like "sg_xxxxxx:8080"
+    # @return [Boolean] true if the security group allows ingress for the public IP of this instance on a certain port
     def has_sg_rule?(group_port)
-      # group_id_port like: 'sg-1234567:8080'
       options = get_simple_sg_options(group_port)
       options_cidr_ip = options[:ip_permissions][0][:ip_ranges][0][:cidr_ip]
       group_id = options[:group_id]
@@ -694,9 +696,9 @@ class AwsRegion < AwsBase
       false
     end
 
+    # authorize security group ingress for public ip of this instance on port
+    # @param groups [Array] - each element is String: "security_group_id:port". For example: ["sg-0xxxxx:80", "sg-0xxxxx:8443", "sg-0yyyyy:3000"]
     def authorize_sg_ingress(groups)
-      # authorize the public ip of this instance for ingress on port for security group
-      # groups is array of strings: security_group_id:port
       raise "no public ip" unless @public_ip.to_s.match /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/
       groups.each do |gp|
         options = get_simple_sg_options(gp)
@@ -709,6 +711,8 @@ class AwsRegion < AwsBase
       end
     end
 
+    # revoke security group ingress for public ip of this instance on port
+    # @param groups [Array] - each element is String: "security_group_id:port". For example: ["sg-0xxxxx:80", "sg-0xxxxx:8443", "sg-0yyyyy:3000"]
     def revoke_sg_ingress(groups)
       # revoke the public ip of this instance for ingress on port for security group
       # groups is array of strings: security_group_id:port
@@ -728,9 +732,11 @@ class AwsRegion < AwsBase
                                  :volume_id => volume_id,
                                  :device => device})
     end
+
+    # construct hash for authorize/revoke ingress and has_sg_rule?
+    # @param group_id_port [String] - security_group:port  like "sg_xxxxxx:8080"
+    # @return [Hash] - Hash for ec2 call for security group management
     def get_simple_sg_options(group_id_port)
-      # group_id_port is like "sg-1234567:8080"
-      # return simple option hash for one ip, one port, for this public IP
       security_group_id, port = group_id_port.split(':')
       port = port.to_s.to_i
       raise "no security group id" unless security_group_id.to_s.length > 0
